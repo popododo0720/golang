@@ -1,4 +1,4 @@
-package curlib
+package structs
 
 import (
 	"encoding/csv"
@@ -8,10 +8,18 @@ import (
 )
 
 type Currency struct {
-	Code    string
-	Name    string
-	Number  string
-	Country string
+	Code    string `json:"currency_code"`
+	Name    string `json:"currency_name"`
+	Number  string `json:"currency_number"`
+	Country string `json:"currency_country"`
+}
+
+type CurrencyRequest struct {
+	Get string `json:"get"`
+}
+
+type CurrencyError struct {
+	Error string `json:"currency_error"`
 }
 
 func Load(path string) []Currency {
