@@ -12,6 +12,8 @@ import (
 	"os"
 )
 
+const quitCommand = "__quit__"
+
 var (
 	currencies = structs.Load("data.csv")
 )
@@ -54,26 +56,29 @@ func main() {
 
 func handleConnection(conn net.Conn) {
 	defer func() {
+		log.Printf("closing connection for %s", conn.RemoteAddr())
 		if err := conn.Close(); err != nil {
 			log.Println("error closing connection: ", err)
 		}
 	}()
 
-	reader := bufio.NewReaderSize(conn, 4)
+	reader := bufio.NewReader(conn)
 
 	for {
-		buf, err := reader.ReadSlice('}')
+		buf, err := reader.ReadBytes('}')
 		if err != nil {
-			if err != io.EOF {
-				log.Println("connection read error: ", err)
-				return
+			if err == io.EOF {
+				log.Printf("Connection closed by client %s (EOF)", conn.RemoteAddr())
+			} else {
+				log.Printf("Connection read error for %s: %v", conn.RemoteAddr(), err)
 			}
+			return
 		}
 		reader.Reset(conn)
 
 		var req structs.CurrencyRequest
 		if err := json.Unmarshal(buf, &req); err != nil {
-			log.Println("failed to unmarshal request: ", err)
+			log.Printf("Failed to unmarshal request from %s: %v (data: %q)", conn.RemoteAddr(), err, string(buf))
 
 			cerr, jerr := json.Marshal(&structs.CurrencyError{Error: err.Error()})
 			if jerr != nil {
@@ -83,10 +88,17 @@ func handleConnection(conn net.Conn) {
 
 			if _, werr := conn.Write(cerr); werr != nil {
 				log.Println("failed to write to CurrencyError: ", werr)
-				return
+				continue
 			}
 			continue
 		}
+
+		if req.Get == quitCommand {
+			log.Printf("Client %s requested quit.", conn.RemoteAddr())
+			return
+		}
+
+		log.Printf("Received request from %s: %+v", conn.RemoteAddr(), req)
 
 		result := structs.Find(currencies, req.Get)
 
