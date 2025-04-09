@@ -22,9 +22,44 @@ func main() {
 	flag.StringVar(&network, "n", "tcp", "network protocol [tcp,unix]")
 	flag.Parse()
 
-	conn, err := net.Dial(network, addr)
+	dialer := &net.Dialer{
+		Timeout:   time.Second * 300,
+		KeepAlive: time.Minute * 5,
+	}
+
+	var (
+		conn           net.Conn
+		err            error
+		connTries      = 0
+		connMaxRetries = 3
+		connSleepRetry = time.Second * 1
+	)
+
+	for connTries < connMaxRetries {
+		fmt.Println("creating socket to", addr)
+		conn, err = dialer.Dial(network, addr)
+		if err != nil {
+			fmt.Println("failed to create socket: ", err)
+			switch nerr := err.(type) {
+			case net.Error:
+				if nerr.Timeout() {
+					connTries++
+					fmt.Println("trying again in: ", connSleepRetry)
+					time.Sleep(connSleepRetry)
+					continue
+				}
+				fmt.Println("unable to recover from network error:", nerr)
+				os.Exit(1)
+			default:
+				fmt.Println("non-network error during dial:", err)
+				os.Exit(1)
+			}
+		}
+		break
+	}
+
 	if err != nil {
-		fmt.Println("failed to create socket: ", err)
+		fmt.Println("failed to create connection...")
 		os.Exit(1)
 	}
 	defer conn.Close()
@@ -52,13 +87,13 @@ func main() {
 
 		req := structs.CurrencyRequest{Get: param}
 
-		if err := json.NewEncoder(conn).Encode(req); err != nil {
+		if err := json.NewEncoder(conn).Encode(&req); err != nil {
 			switch err := err.(type) {
 			case net.Error:
 				fmt.Println("failed to send request: ", err)
 				looping = false
 			default:
-				fmt.Println("failed to send request: ", err)
+				fmt.Println("failed to encode request: ", err)
 			}
 			continue
 		}
@@ -78,9 +113,7 @@ func main() {
 		if len(currencies) == 0 {
 			fmt.Println("No currencies found")
 		} else {
-			for i, c := range currencies {
-				fmt.Printf("%2d. %s[%s]\t%s, %s\n", i, c.Code, c.Number, c.Name, c.Country)
-			}
+			fmt.Println(currencies)
 		}
 	}
 

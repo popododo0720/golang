@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -62,58 +61,30 @@ func handleConnection(conn net.Conn) {
 		}
 	}()
 
-	reader := bufio.NewReader(conn)
+	dec := json.NewDecoder(conn)
+	enc := json.NewEncoder(conn)
 
 	for {
-		buf, err := reader.ReadBytes('}')
-		if err != nil {
+		var req structs.CurrencyRequest
+		if err := dec.Decode(&req); err != nil {
 			if err == io.EOF {
 				log.Printf("Connection closed by client %s (EOF)", conn.RemoteAddr())
 			} else {
-				log.Printf("Connection read error for %s: %v", conn.RemoteAddr(), err)
+				log.Printf("Failed to decode request from %s: %+v", conn.RemoteAddr(), err)
 			}
-			return
-		}
-		reader.Reset(conn)
-
-		var req structs.CurrencyRequest
-		if err := json.Unmarshal(buf, &req); err != nil {
-			log.Printf("Failed to unmarshal request from %s: %v (data: %q)", conn.RemoteAddr(), err, string(buf))
-
-			cerr, jerr := json.Marshal(&structs.CurrencyError{Error: err.Error()})
-			if jerr != nil {
-				log.Println("failed to marshar CurrencyError: ", jerr)
-				continue
-			}
-
-			if _, werr := conn.Write(cerr); werr != nil {
-				log.Println("failed to write to CurrencyError: ", werr)
-				continue
-			}
-			continue
-		}
-
-		if req.Get == quitCommand {
-			log.Printf("Client %s requested quit.", conn.RemoteAddr())
 			return
 		}
 
 		log.Printf("Received request from %s: %+v", conn.RemoteAddr(), req)
 
-		result := structs.Find(currencies, req.Get)
-
-		rsp, err := json.Marshal(&result)
-		if err != nil {
-			log.Println("failed to marshal data: ", err)
-			if _, err := fmt.Fprintf(conn, `{"currency_error":"internal error"}`); err != nil {
-				log.Printf("failed to write to client: %v", err)
-				return
-			}
-			continue
+		if req.Get == quitCommand {
+			return
 		}
 
-		if _, err := conn.Write(rsp); err != nil {
-			log.Println("failed to write response: ", err)
+		result := structs.Find(currencies, req.Get)
+
+		if err := enc.Encode(&result); err != nil {
+			log.Printf("Failed to encode/send response to %s: %v", conn.RemoteAddr(), err)
 			return
 		}
 	}
